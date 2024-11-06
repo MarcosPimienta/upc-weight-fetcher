@@ -12,16 +12,21 @@ def main():
     file_path = sys.argv[1]
     api_key = sys.argv[2]
 
-    # Load data
-    df = load_excel(file_path)
+    # Load data from the second sheet with specified header row
+    df = load_excel(file_path, sheet_name=1, header_row=1)
 
-    # Debug: print column names
+    # Debug: print column names to ensure we have the correct ones
     print("Column names in the loaded DataFrame:", df.columns)
+
+    # Check if 'Weight' and 'UPC/EAN' columns exist
+    if 'Weight' not in df.columns or 'UPC/EAN' not in df.columns:
+        print("Error: Required columns ('Weight' or 'UPC/EAN') not found in the data.")
+        sys.exit(1)
 
     # Filter UPCs with missing weights
     upc_list = df[df['Weight'].isna()]['UPC/EAN'].unique()
 
-    # Fetch and convert weights
+    # Fetch and convert weights for missing UPCs
     weights_data = fetch_weights(upc_list, api_key)
     weights_data = [(upc, convert_to_grams(weight, unit)) for upc, weight, unit in weights_data]
 

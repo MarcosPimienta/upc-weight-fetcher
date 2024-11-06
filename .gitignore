@@ -3,6 +3,7 @@ venv/
 
 # Ignore sensitive data files
 *.xlsx
+*.csv
 
 # Ignore cache and compiled files
 __pycache__/
