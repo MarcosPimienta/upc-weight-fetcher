@@ -12,11 +12,22 @@ def main():
     file_path = sys.argv[1]
     api_key = sys.argv[2]
 
-    # Load data
-    df = load_excel(file_path)
+    # Load data from the second sheet, specifying the header row
+    df = load_excel(file_path, sheet_name=1, header_row=1)
+
+    # Drop any fully empty rows or columns
+    df.dropna(how="all", inplace=True)
+
+    # Optional: rename columns if necessary
+    df.columns = df.columns.str.strip()  # Remove leading/trailing whitespace
 
     # Debug: print column names
     print("Column names in the loaded DataFrame:", df.columns)
+
+    # Check if 'Weight' column exists
+    if 'Weight' not in df.columns:
+        print("Error: 'Weight' column not found in the data.")
+        sys.exit(1)
 
     # Filter UPCs with missing weights
     upc_list = df[df['Weight'].isna()]['UPC/EAN'].unique()
