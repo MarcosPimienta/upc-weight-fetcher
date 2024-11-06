@@ -1,0 +1,9 @@
+# Ignore virtual environment folder
+venv/
+
+# Ignore sensitive data files
+*.xlsx
+
+# Ignore cache and compiled files
+__pycache__/
+*.py[cod]
