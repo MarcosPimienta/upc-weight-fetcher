@@ -21,7 +21,7 @@ def main():
     # Optional: rename columns if necessary
     df.columns = df.columns.str.strip()  # Remove leading/trailing whitespace
 
-    # Debug: print column names
+    # Debug: print column names to ensure we have the correct ones
     print("Column names in the loaded DataFrame:", df.columns)
 
     # Check if 'Weight' column exists
@@ -32,7 +32,7 @@ def main():
     # Filter UPCs with missing weights
     upc_list = df[df['Weight'].isna()]['UPC/EAN'].unique()
 
-    # Fetch and convert weights
+    # Fetch and convert weights for missing UPCs
     weights_data = fetch_weights(upc_list, api_key)
     weights_data = [(upc, convert_to_grams(weight, unit)) for upc, weight, unit in weights_data]
 
