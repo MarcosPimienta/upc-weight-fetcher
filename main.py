@@ -18,16 +18,19 @@ def main():
     # Drop any fully empty rows or columns
     df.dropna(how="all", inplace=True)
 
-    # Optional: rename columns if necessary
-    df.columns = df.columns.str.strip()  # Remove leading/trailing whitespace
+    # Remove leading/trailing whitespace from all column names
+    df.columns = df.columns.str.strip()
+
+    # Ensure 'Weight' values are stripped of whitespace and handle "Missing " placeholder
+    if 'Weight' in df.columns:
+        df['Weight'] = df['Weight'].astype(str).str.strip()
+        df['Weight'].replace("Missing", pd.NA, inplace=True)  # Replace "Missing" with NaN
+    else:
+        print("Error: 'Weight' column not found in the data.")
+        sys.exit(1)
 
     # Debug: print column names to ensure we have the correct ones
     print("Column names in the loaded DataFrame:", df.columns)
-
-    # Check if 'Weight' column exists
-    if 'Weight' not in df.columns:
-        print("Error: 'Weight' column not found in the data.")
-        sys.exit(1)
 
     # Filter UPCs with missing weights
     upc_list = df[df['Weight'].isna()]['UPC/EAN'].unique()
