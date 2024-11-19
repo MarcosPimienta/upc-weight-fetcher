@@ -1,10 +1,92 @@
 import requests
 import json
 
+def test_api_connection(api_choice, api_key):
+    """
+    Tests the API connection to ensure the provided API key is valid.
+
+    Parameters:
+    - api_choice: The selected API ('red', 'go-upc', 'upcitemdb').
+    - api_key: The API key to test.
+
+    Returns:
+    - True if the connection is successful, otherwise False.
+    """
+    if api_choice == 'red':
+        url = "https://api.redcircleapi.com/request"
+        params = {
+            'api_key': api_key,
+            'search_term': 'test',
+            'type': 'search'
+        }
+    elif api_choice == 'go-upc':
+        url = f"https://api.go-upc.com/request/test"
+        headers = {'Authorization': f"Bearer {api_key}"}
+        params = {
+            'api_key': api_key
+        }
+    elif api_choice == 'upcitemdb':
+        url = "https://api.upcitemdb.com/prod/v1/lookup?upc=4002293401102"
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip,deflate',
+            'user_key': api_key,
+            'key_type': '3scale'
+        }
+        params = None
+    else:
+        return False
+
+    try:
+        response = requests.get(url, headers=headers if api_choice in ['go-upc', 'upcitemdb'] else None, params=params)
+        response.raise_for_status()
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"API connection test failed: {e}")
+        return False
+
+def fetch_weight_from_upcitemdb(upc, api_key):
+    """
+    Fetches product details, including weight, from UPCItemDB API.
+
+    Parameters:
+    - upc: The UPC code for the product.
+    - api_key: The API key for authentication.
+
+    Returns:
+    - A tuple (weight, unit) if successful, otherwise (None, None).
+    """
+    url = f"https://api.upcitemdb.com/prod/v1/lookup?upc={upc}"
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip,deflate',
+        'user_key': api_key,
+        'key_type': '3scale'
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        if 'items' in data and len(data['items']) > 0:
+            first_item = data['items'][0]  # Take the first item
+            weight = first_item.get('weight')  # Adjust based on API response structure
+            unit = 'grams'  # Assuming unit as grams for simplicity
+            return weight, unit
+        else:
+            print(f"No data found for UPC {upc}")
+            return None, None
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data from UPCItemDB API for UPC {upc}: {e}")
+        return None, None
+
+
 def fetch_weight_from_red_circle(title, api_key):
     """
     Fetches the weight information for a given product title from the RedCircle API.
-    
+
     Parameters:
     - title: The product title to search for.
     - api_key: The API key for authentication.
