@@ -46,6 +46,57 @@ def test_api_connection(api_choice, api_key):
         print(f"API connection test failed: {e}")
         return False
 
+def fetch_weight_from_upcitemdb_search(query, api_key):
+    """
+    Searches for a product using UPCItemDB API based on a search query.
+
+    Parameters:
+    - query: The search query constructed from product attributes.
+    - api_key: The API key for authentication.
+
+    Returns:
+    - A tuple (upc, weight, unit) if successful, otherwise (None, None, None).
+    """
+    url = "https://api.upcitemdb.com/prod/trial/search"
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip,deflate',
+        'user_key': api_key,
+        'key_type': '3scale'
+    }
+    params = {
+        's': query
+    }
+
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        data = response.json()
+        if 'items' in data and len(data['items']) > 0:
+            first_item = data['items'][0]  # Take the first item
+            upc = first_item.get('upc', None)
+            weight = first_item.get('weight', None)
+            # Assuming the weight unit is included in the weight field, e.g., "1.2 pounds"
+            if weight:
+                weight_parts = weight.split()
+                if len(weight_parts) == 2:
+                    weight_value = float(weight_parts[0])
+                    weight_unit = weight_parts[1]
+                else:
+                    weight_value = None
+                    weight_unit = None
+            else:
+                weight_value = None
+                weight_unit = None
+            return upc, weight_value, weight_unit
+        else:
+            print(f"No data found for query '{query}'")
+            return None, None, None
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data from UPCItemDB API for query '{query}': {e}")
+        return None, None, None
+
 def fetch_weight_from_upcitemdb(upc, api_key):
     """
     Fetches product details, including weight, from UPCItemDB API.
