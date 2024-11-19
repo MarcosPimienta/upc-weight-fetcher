@@ -1,7 +1,12 @@
 import sys
 import pandas as pd
 import inquirer
-from modules.data_fetcher import fetch_weight_from_go_upc, fetch_weight_from_red_circle
+from modules.data_fetcher import (
+    fetch_weight_from_go_upc,
+    fetch_weight_from_red_circle,
+    fetch_weight_from_upcitemdb,
+    test_api_connection
+)
 from modules.file_handler import load_excel, save_to_excel, save_to_csv
 
 def main():
@@ -12,16 +17,31 @@ def main():
         inquirer.List(
             'api_choice',
             message="Choose the API to use",
-            choices=['red (RedCircle API)', 'go-upc (Go-UPC API)'],
+            choices=[
+                'red (RedCircle API)',
+                'go-upc (Go-UPC API)',
+                'upcitemdb (UPCItemDB API)'
+            ],
             default='red (RedCircle API)'
         ),
     ]
     answers = inquirer.prompt(questions)
     file_path = answers['file_path']
     api_key = answers['api_key']
-    api_choice = 'red' if 'red' in answers['api_choice'].lower() else 'go-upc'
+    api_choice = (
+        'red' if 'red' in answers['api_choice'].lower()
+        else 'go-upc' if 'go-upc' in answers['api_choice'].lower()
+        else 'upcitemdb'
+    )
 
-    # Step 2: Load the Excel file and display columns
+    # Step 2: Test API connectivity
+    print("\nTesting API connection...")
+    if not test_api_connection(api_choice, api_key):
+        print("Failed to connect to the API. Please check your API key or network connection.")
+        sys.exit(1)
+    print("API connection successful!\n")
+
+    # Step 3: Load the Excel file and display columns
     try:
         df = load_excel(file_path, sheet_name=0, header_row=0)
         df.dropna(how="all", inplace=True)  # Drop empty rows
@@ -30,11 +50,11 @@ def main():
         print(f"Error loading file: {e}")
         sys.exit(1)
 
-    """ print("\nAvailable columns in the file:")
+    print("\nAvailable columns in the file:")
     for idx, col in enumerate(df.columns.tolist(), start=1):
-        print(f"{idx}. {col}") """
+        print(f"{idx}. {col}")
 
-    # Step 3: Prompt user to select desired columns
+    # Step 4: Prompt user to select desired columns
     column_choices = inquirer.Checkbox(
         'columns',
         message="Select the columns you want to include in the output",
@@ -46,7 +66,7 @@ def main():
         print("No columns selected. Exiting.")
         sys.exit(1)
 
-    # Step 4: Process selected columns
+    # Step 5: Process selected columns
     processed_data = []
     for _, row in df.iterrows():
         processed_row = {}
@@ -59,6 +79,8 @@ def main():
                     weight_data = fetch_weight_from_go_upc(row.get('upc', 'N/A'), api_key)
                 elif api_choice == 'red':
                     weight_data = fetch_weight_from_red_circle(row.get('title', 'N/A'), api_key)
+                elif api_choice == 'upcitemdb':
+                    weight_data = fetch_weight_from_upcitemdb(row.get('upc', 'N/A'), api_key)
                 else:
                     weight_data = None
 
@@ -70,7 +92,7 @@ def main():
 
         processed_data.append(processed_row)
 
-    # Step 5: Save to new files
+    # Step 6: Save to new files
     output_df = pd.DataFrame(processed_data)
     save_to_csv(output_df, "updated_products.csv")
     save_to_excel(output_df, "updated_products.xlsx")
