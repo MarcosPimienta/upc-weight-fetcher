@@ -99,7 +99,7 @@ def main():
         print("Error: Required column 'Title' not found in the data.")
         sys.exit(1)
 
-     # Step 8: Process the data
+    # Step 8: Process the data
     processed_data = []
     success_counter = []
     failure_counter = []
@@ -122,6 +122,7 @@ def main():
                 title, api_key, throttle_time
             )
             if product_details:
+                product_details["risky"] = "No"  # RedCircle doesn't have retry logic
                 success_counter.append(1)
             else:
                 failure_counter.append(1)
@@ -130,6 +131,7 @@ def main():
                 title, api_key, throttle_time
             )
             if product_details:
+                product_details["risky"] = "No"  # Go-UPC doesn't have retry logic
                 success_counter.append(1)
             else:
                 failure_counter.append(1)
@@ -152,6 +154,7 @@ def main():
                 "category": product_details.get("category", "N/A"),
                 "description": product_details.get("description", "N/A"),
                 "images": ", ".join(product_details.get("images", [])),
+                "risky": product_details.get("risky", "N/A"),
             }
         else:
             processed_row = {
@@ -162,6 +165,7 @@ def main():
                 "category": "N/A",
                 "description": "N/A",
                 "images": "N/A",
+                "risky": "N/A",
             }
 
         # Include additional selected columns

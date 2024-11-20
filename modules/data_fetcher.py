@@ -75,20 +75,6 @@ def truncate_title(title):
     return truncated_titles
 
 def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, success_counter, failure_counter, max_retries=3):
-    """
-    Searches for a product using UPCItemDB API with retry attempts and progressive truncation.
-
-    Parameters:
-    - product_name: The product name as a string.
-    - api_key: The API key for authentication.
-    - throttle_time: Time in seconds to wait between API requests.
-    - success_counter: A list to track successful responses.
-    - failure_counter: A list to track failed responses.
-    - max_retries: The maximum number of retry attempts for a failed query.
-
-    Returns:
-    - A dictionary with extracted data (e.g., UPC, weight, brand, etc.) if successful, otherwise None.
-    """
     original_name = product_name  # Keep the original name for logging
     truncated_titles = truncate_title(product_name)  # Generate a list of truncated titles
     attempt = 0
@@ -129,9 +115,9 @@ def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, suc
             # Parse the response JSON
             data = response.json()
             if data.get("code") == "OK" and data.get("items"):
-                print(f"{Fore.GREEN}Successfully fetched data for '{product_name}'{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}Successfully fetched data for '{product_name}' on attempt {attempt}{Style.RESET_ALL}")
                 success_counter.append(1)
-                # Extract the first item's details
+                # Extract the first item's details and mark risky if attempt > 1
                 first_item = data['items'][0]
                 return {
                     "upc": first_item.get("upc"),
@@ -141,6 +127,7 @@ def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, suc
                     "description": first_item.get("description"),
                     "category": first_item.get("category"),
                     "images": first_item.get("images"),
+                    "risky": "Yes" if attempt > 1 else "No",  # Mark as risky if not the first attempt
                 }
 
             print(f"{Fore.RED}No results for product name '{product_name}'{Style.RESET_ALL}")
