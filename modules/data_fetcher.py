@@ -1,5 +1,8 @@
 import requests
 import json
+import re
+import time
+from colorama import Fore, Style
 
 def test_api_connection(api_choice, api_key):
     """
@@ -46,56 +49,96 @@ def test_api_connection(api_choice, api_key):
         print(f"API connection test failed: {e}")
         return False
 
-def fetch_weight_from_upcitemdb_search(query, api_key):
+def truncate_title(title):
     """
-    Searches for a product using UPCItemDB API based on a search query.
+    Truncates the product title progressively based on delimiters like ':' and '-',
+    and removes leading numbers or numerical phrases.
 
     Parameters:
-    - query: The search query constructed from product attributes.
-    - api_key: The API key for authentication.
+    - title: The original product title.
 
     Returns:
-    - A tuple (upc, weight, unit) if successful, otherwise (None, None, None).
+    - A list of progressively truncated titles.
     """
-    url = "https://api.upcitemdb.com/prod/trial/search"
-    headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip,deflate',
-        'user_key': api_key,
-        'key_type': '3scale'
-    }
-    params = {
-        's': query
-    }
+    # Remove leading numbers or numerical phrases
+    clean_title = re.sub(r'^\d+\s*[a-zA-Z]*\s*', '', title).strip()  # e.g., "2pk 50\"x63\" ..." -> "blackout ..."
 
-    try:
-        response = requests.get(url, headers=headers, params=params)
-        response.raise_for_status()
-        data = response.json()
-        if 'items' in data and len(data['items']) > 0:
-            first_item = data['items'][0]  # Take the first item
-            upc = first_item.get('upc', None)
-            weight = first_item.get('weight', None)
-            # Assuming the weight unit is included in the weight field, e.g., "1.2 pounds"
-            if weight:
-                weight_parts = weight.split()
-                if len(weight_parts) == 2:
-                    weight_value = float(weight_parts[0])
-                    weight_unit = weight_parts[1]
-                else:
-                    weight_value = None
-                    weight_unit = None
-            else:
-                weight_value = None
-                weight_unit = None
-            return upc, weight_value, weight_unit
-        else:
-            print(f"No data found for query '{query}'")
-            return None, None, None
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching data from UPCItemDB API for query '{query}': {e}")
-        return None, None, None
+    # Split the title by delimiters ':' and '-'
+    delimiters = [':', '-']
+    truncated_titles = [clean_title]
+    for delimiter in delimiters:
+        if delimiter in clean_title:
+            # Create progressively truncated titles
+            parts = clean_title.split(delimiter)
+            for i in range(1, len(parts)):
+                truncated_titles.append(delimiter.join(parts[:i]).strip())
+    return truncated_titles
+
+def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, success_counter, failure_counter):
+    """
+    Searches for a product using UPCItemDB API based on the product name, with progressive truncation.
+
+    Parameters:
+    - product_name: The product name as a string.
+    - api_key: The API key for authentication.
+    - throttle_time: Time in seconds to wait between API requests.
+    - success_counter: A list to track successful responses.
+    - failure_counter: A list to track failed responses.
+
+    Returns:
+    - A dictionary with extracted data (e.g., UPC, weight, brand, etc.) if successful, otherwise None.
+    """
+    # Generate progressively truncated titles
+    truncated_titles = truncate_title(product_name)
+
+    for attempt, title in enumerate(truncated_titles, start=1):
+        print(f"{Fore.YELLOW}Attempt {attempt}: Querying with title '{title}'{Style.RESET_ALL}")
+        # Sanitize product name for URL
+        sanitized_name = re.sub(r'[^a-zA-Z0-9\s/\-]', '', title)  # Keep alphanumeric, spaces, '/', and '-'
+        sanitized_name = re.sub(r'\s+', '%20', sanitized_name).strip()  # Replace spaces with '%20'
+
+        # Manually construct the request URL
+        url = f"https://api.upcitemdb.com/prod/v1/search?s={sanitized_name}&type=product&match_mode=1"
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'user_key': api_key,
+            'key_type': '3scale',
+        }
+
+        try:
+            response = requests.get(url, headers=headers)
+            print(f"{Fore.BLUE}Request URL:{Style.RESET_ALL} {response.url}")  # Debug URL
+            response.raise_for_status()  # Raise an error for HTTP status codes >= 400
+
+            # Parse the response JSON
+            data = response.json()
+            if data.get("code") == "OK" and data.get("items"):
+                print(f"{Fore.GREEN}Successfully fetched data for truncated title '{title}'{Style.RESET_ALL}")
+                success_counter.append(1)
+                # Extract the first item's details
+                first_item = data['items'][0]
+                return {
+                    "upc": first_item.get("upc"),
+                    "weight": first_item.get("weight"),
+                    "brand": first_item.get("brand"),
+                    "title": first_item.get("title"),
+                    "description": first_item.get("description"),
+                    "category": first_item.get("category"),
+                    "images": first_item.get("images"),
+                }
+
+            print(f"{Fore.RED}No results for truncated title '{title}'{Style.RESET_ALL}")
+        except requests.exceptions.RequestException as e:
+            print(f"{Fore.RED}Error fetching data from UPCItemDB API for title '{title}': {e}{Style.RESET_ALL}")
+        finally:
+            time.sleep(throttle_time)  # Wait for the specified throttle time
+
+    # If all attempts fail, track failure
+    print(f"{Fore.RED}Failed to fetch data for product '{product_name}' after {len(truncated_titles)} attempts.{Style.RESET_ALL}")
+    failure_counter.append(1)
+    return None
 
 def fetch_weight_from_upcitemdb(upc, api_key):
     """
@@ -134,87 +177,87 @@ def fetch_weight_from_upcitemdb(upc, api_key):
         return None, None
 
 
-def fetch_weight_from_red_circle(title, api_key):
+def fetch_weights_from_red_circle(query, api_key, throttle_time):
     """
-    Fetches the weight information for a given product title from the RedCircle API.
+    Searches for a product using RedCircle API based on a query.
 
     Parameters:
-    - title: The product title to search for.
+    - query: The product query as a string.
     - api_key: The API key for authentication.
+    - throttle_time: Time in seconds to wait between API requests.
 
     Returns:
-    - A tuple (weight, unit) if successful, otherwise (None, None).
+    - A dictionary with extracted data (e.g., weight, unit) if successful, otherwise None.
     """
     url = "https://api.redcircleapi.com/request"
     params = {
         'api_key': api_key,
-        'search_term': title,
-        'category_id': '5zja3',  # Example category; update as needed
-        'type': 'search'
+        'search_term': query,
+        'type': 'search',
     }
 
     try:
         response = requests.get(url, params=params)
-        response.raise_for_status()
+        print(f"Request URL: {response.url}")  # Debug URL
+        response.raise_for_status()  # Raise an error for HTTP status codes >= 400
+
+        # Parse the response JSON
         data = response.json()
-        
-        # Example parsing logic; adjust based on the actual API response
-        if 'items' in data and len(data['items']) > 0:
-            first_item = data['items'][0]  # Assume we use the first search result
-            weight = first_item.get('weight')
-            unit = first_item.get('unit')
-            return weight, unit
-        else:
-            print(f"No weight data found for title '{title}'")
-            return None, None
+        if not data.get("items"):
+            print(f"No results for query '{query}'")
+            return None
+
+        # Extract the first item's details
+        first_item = data['items'][0]
+        return {
+            "weight": first_item.get("weight"),
+            "unit": first_item.get("unit"),
+        }
+
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching data from RedCircle API for title '{title}': {e}")
-        return None, None
+        print(f"Error fetching data from RedCircle API for query '{query}': {e}")
+        return None
+    finally:
+        time.sleep(throttle_time)  # Wait for the specified throttle time
 
-def fetch_weights(upc_list, api_key):
-    base_url = 'https://go-upc.com/api/v1/code/'
-    headers = {'Authorization': f"Bearer {api_key}"}
-    weight_data = []
 
-    for upc in upc_list:
-        response = requests.get(f"{base_url}{upc}", headers=headers)
-        if response.status_code == 200:
-            product_data = response.json()
-            weight = product_data.get('weight')
-            unit = product_data.get('unit', 'g')  # Default to grams if not specified
-            if weight:
-                weight_data.append((upc, weight, unit))
-        else:
-            print(f"Failed to fetch data for UPC {upc}: {response.status_code}")
-
-    return weight_data
-
-def fetch_weight_from_go_upc(upc, api_key):
+def fetch_weights_from_go_upc(upc, api_key, throttle_time):
     """
-    Fetches the weight information for a given UPC from the Go-UPC API.
+    Searches for a product using Go-UPC API based on a UPC.
 
     Parameters:
-    - upc: The UPC code for the product.
+    - upc: The product UPC as a string.
     - api_key: The API key for authentication.
+    - throttle_time: Time in seconds to wait between API requests.
 
     Returns:
-    - A tuple (weight, unit) if successful, otherwise (None, None).
+    - A dictionary with extracted data (e.g., weight, unit) if successful, otherwise None.
     """
-    url = f"https://api.go-upc.com/request/{upc}"
-    headers = {'Authorization': f"Bearer {api_key}"}
-    params = {
-        'api_key': api_key
+    url = f"https://go-upc.com/api/v1/lookup/{upc}"
+    headers = {
+        'Authorization': f"Bearer {api_key}",
     }
 
     try:
-        response = requests.get(url, headers=headers, params=params)
-        response.raise_for_status()  # Raise an error for bad status codes
-        data = response.json()
+        response = requests.get(url, headers=headers)
+        print(f"Request URL: {response.url}")  # Debug URL
+        response.raise_for_status()  # Raise an error for HTTP status codes >= 400
 
-        # Adjust this based on the actual API response structure
-        weight = data.get('weight')
-        unit = data.get('unit')
-        return weight, unit
+        # Parse the response JSON
+        data = response.json()
+        if not data.get("item"):
+            print(f"No results for UPC '{upc}'")
+            return None
+
+        # Extract the item's details
+        item = data['item']
+        return {
+            "weight": item.get("weight"),
+            "unit": item.get("unit"),
+        }
+
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching data for UPC {upc}: {e}")
-        return None, None
+        print(f"Error fetching data from Go-UPC API for UPC '{upc}': {e}")
+        return None
+    finally:
+        time.sleep(throttle_time)
