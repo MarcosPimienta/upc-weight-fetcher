@@ -99,13 +99,17 @@ def main():
         print("Error: Required column 'Title' not found in the data.")
         sys.exit(1)
 
-    # Step 8: Process the data
+     # Step 8: Process the data
     processed_data = []
     success_counter = []
     failure_counter = []
 
-    for _, row in df.iterrows():
-        title = row.get("Title", "").strip()
+    total_queries = len(df)  # Total number of queries
+    for index, row in enumerate(df.iterrows(), start=1):
+        title = row[1].get("Title", "").strip()
+
+        # Display query progress
+        print(f"{Fore.CYAN}Processing query {index}/{total_queries}: {title}{Style.RESET_ALL}")
 
         # Fetch product details based on the selected API
         product_details = None
@@ -133,7 +137,6 @@ def main():
         if product_details:
             weight_in_grams = None
             if product_details.get("weight"):
-                # Attempt to split weight into value and unit
                 weight_parts = product_details["weight"].split()
                 if len(weight_parts) >= 2:
                     weight_value, weight_unit = weight_parts[:2]
@@ -164,7 +167,7 @@ def main():
         # Include additional selected columns
         for col in selected_columns:
             if col not in processed_row:
-                processed_row[col] = row.get(col, "N/A")
+                processed_row[col] = row[1].get(col, "N/A")
 
         processed_data.append(processed_row)
 
@@ -177,7 +180,6 @@ def main():
     print(f"\nFiles 'updated_products.csv' and 'updated_products.xlsx' generated successfully.")
     print(f"\n{len(success_counter)} products successfully processed.")
     print(f"{len(failure_counter)} products failed to process.")
-
 
 if __name__ == "__main__":
     main()

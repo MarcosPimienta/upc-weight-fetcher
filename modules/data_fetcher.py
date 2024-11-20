@@ -74,9 +74,9 @@ def truncate_title(title):
                 truncated_titles.append(delimiter.join(parts[:i]).strip())
     return truncated_titles
 
-def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, success_counter, failure_counter):
+def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, success_counter, failure_counter, max_retries=3):
     """
-    Searches for a product using UPCItemDB API based on the product name, with progressive truncation.
+    Searches for a product using UPCItemDB API with retry attempts and progressive truncation.
 
     Parameters:
     - product_name: The product name as a string.
@@ -84,25 +84,35 @@ def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, suc
     - throttle_time: Time in seconds to wait between API requests.
     - success_counter: A list to track successful responses.
     - failure_counter: A list to track failed responses.
+    - max_retries: The maximum number of retry attempts for a failed query.
 
     Returns:
     - A dictionary with extracted data (e.g., UPC, weight, brand, etc.) if successful, otherwise None.
     """
-    # Sanitize product name for URL
-    sanitized_name = re.sub(r'[^a-zA-Z0-9\s/\-]', '', product_name)  # Keep alphanumeric, spaces, '/', and '-'
-    sanitized_name = re.sub(r'\s+', '%20', sanitized_name).strip()  # Replace spaces with '%20'
+    original_name = product_name  # Keep the original name for logging
+    truncated_titles = truncate_title(product_name)  # Generate a list of truncated titles
+    attempt = 0
 
-    # Manually construct the request URL
-    url = f"https://api.upcitemdb.com/prod/v1/search?s={sanitized_name}&type=product&match_mode=1"
-    headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-        'user_key': api_key,
-        'key_type': '3scale',
-    }
+    while attempt < max_retries and attempt < len(truncated_titles):
+        # Use the next truncated title for each attempt
+        product_name = truncated_titles[attempt]
+        attempt += 1
 
-    while True:  # Retry loop for handling rate limits
+        # Sanitize product name for URL
+        sanitized_name = re.sub(r'[^a-zA-Z0-9\s/\-]', '', product_name)  # Keep alphanumeric, spaces, '/', and '-'
+        sanitized_name = re.sub(r'\s+', '%20', sanitized_name).strip()  # Replace spaces with '%20'
+
+        # Manually construct the request URL
+        url = f"https://api.upcitemdb.com/prod/v1/search?s={sanitized_name}&type=product&match_mode=1"
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'user_key': api_key,
+            'key_type': '3scale',
+        }
+
+        print(f"{Fore.YELLOW}Attempt {attempt}/{max_retries}: Querying '{product_name}'{Style.RESET_ALL}")
         try:
             response = requests.get(url, headers=headers)
             print(f"{Fore.BLUE}Request URL:{Style.RESET_ALL} {response.url}")  # Debug URL
@@ -134,15 +144,14 @@ def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, suc
                 }
 
             print(f"{Fore.RED}No results for product name '{product_name}'{Style.RESET_ALL}")
-            failure_counter.append(1)
-            return None
-
         except requests.exceptions.RequestException as e:
             print(f"{Fore.RED}Error fetching data from UPCItemDB API for product '{product_name}': {e}{Style.RESET_ALL}")
-            failure_counter.append(1)
-            return None
         finally:
             time.sleep(throttle_time)  # Wait for the specified throttle time
+
+    print(f"{Fore.RED}Failed to fetch data for product '{original_name}' after {attempt} attempts.{Style.RESET_ALL}")
+    failure_counter.append(1)
+    return None
 
 def fetch_weight_from_upcitemdb(upc, api_key):
     """
