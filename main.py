@@ -8,6 +8,7 @@ from modules.data_fetcher import (
 )
 from modules.data_converter import convert_to_grams
 from modules.file_handler import save_to_excel, save_to_csv
+from colorama import Fore, Style
 
 
 def main():
@@ -132,8 +133,13 @@ def main():
         if product_details:
             weight_in_grams = None
             if product_details.get("weight"):
-                weight_value, weight_unit = product_details["weight"].split()[:2]
-                weight_in_grams = convert_to_grams(float(weight_value), weight_unit)
+                # Attempt to split weight into value and unit
+                weight_parts = product_details["weight"].split()
+                if len(weight_parts) >= 2:
+                    weight_value, weight_unit = weight_parts[:2]
+                    weight_in_grams = convert_to_grams(float(weight_value), weight_unit)
+                else:
+                    print(f"{Fore.YELLOW}Warning: Unable to process weight for product '{title}': {product_details['weight']}{Style.RESET_ALL}")
 
             processed_row = {
                 "title": product_details.get("title", "N/A"),

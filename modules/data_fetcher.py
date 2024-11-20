@@ -88,34 +88,38 @@ def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, suc
     Returns:
     - A dictionary with extracted data (e.g., UPC, weight, brand, etc.) if successful, otherwise None.
     """
-    # Generate progressively truncated titles
-    truncated_titles = truncate_title(product_name)
+    # Sanitize product name for URL
+    sanitized_name = re.sub(r'[^a-zA-Z0-9\s/\-]', '', product_name)  # Keep alphanumeric, spaces, '/', and '-'
+    sanitized_name = re.sub(r'\s+', '%20', sanitized_name).strip()  # Replace spaces with '%20'
 
-    for attempt, title in enumerate(truncated_titles, start=1):
-        print(f"{Fore.YELLOW}Attempt {attempt}: Querying with title '{title}'{Style.RESET_ALL}")
-        # Sanitize product name for URL
-        sanitized_name = re.sub(r'[^a-zA-Z0-9\s/\-]', '', title)  # Keep alphanumeric, spaces, '/', and '-'
-        sanitized_name = re.sub(r'\s+', '%20', sanitized_name).strip()  # Replace spaces with '%20'
+    # Manually construct the request URL
+    url = f"https://api.upcitemdb.com/prod/v1/search?s={sanitized_name}&type=product&match_mode=1"
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip',
+        'user_key': api_key,
+        'key_type': '3scale',
+    }
 
-        # Manually construct the request URL
-        url = f"https://api.upcitemdb.com/prod/v1/search?s={sanitized_name}&type=product&match_mode=1"
-        headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Accept-Encoding': 'gzip',
-            'user_key': api_key,
-            'key_type': '3scale',
-        }
-
+    while True:  # Retry loop for handling rate limits
         try:
             response = requests.get(url, headers=headers)
             print(f"{Fore.BLUE}Request URL:{Style.RESET_ALL} {response.url}")  # Debug URL
-            response.raise_for_status()  # Raise an error for HTTP status codes >= 400
+
+            if response.status_code == 429:  # Rate limit exceeded
+                print(f"{Fore.YELLOW}Rate limit exceeded. Waiting for reset...{Style.RESET_ALL}")
+                reset_time = int(response.headers.get("x-ratelimit-reset", time.time() + 60))
+                wait_time = max(0, reset_time - int(time.time()))
+                time.sleep(wait_time + 1)  # Wait until rate limit resets
+                continue
+
+            response.raise_for_status()  # Raise an error for other HTTP status codes >= 400
 
             # Parse the response JSON
             data = response.json()
             if data.get("code") == "OK" and data.get("items"):
-                print(f"{Fore.GREEN}Successfully fetched data for truncated title '{title}'{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}Successfully fetched data for '{product_name}'{Style.RESET_ALL}")
                 success_counter.append(1)
                 # Extract the first item's details
                 first_item = data['items'][0]
@@ -129,16 +133,16 @@ def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, suc
                     "images": first_item.get("images"),
                 }
 
-            print(f"{Fore.RED}No results for truncated title '{title}'{Style.RESET_ALL}")
+            print(f"{Fore.RED}No results for product name '{product_name}'{Style.RESET_ALL}")
+            failure_counter.append(1)
+            return None
+
         except requests.exceptions.RequestException as e:
-            print(f"{Fore.RED}Error fetching data from UPCItemDB API for title '{title}': {e}{Style.RESET_ALL}")
+            print(f"{Fore.RED}Error fetching data from UPCItemDB API for product '{product_name}': {e}{Style.RESET_ALL}")
+            failure_counter.append(1)
+            return None
         finally:
             time.sleep(throttle_time)  # Wait for the specified throttle time
-
-    # If all attempts fail, track failure
-    print(f"{Fore.RED}Failed to fetch data for product '{product_name}' after {len(truncated_titles)} attempts.{Style.RESET_ALL}")
-    failure_counter.append(1)
-    return None
 
 def fetch_weight_from_upcitemdb(upc, api_key):
     """
