@@ -115,9 +115,9 @@ def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, suc
             # Parse the response JSON
             data = response.json()
             if data.get("code") == "OK" and data.get("items"):
-                print(f"{Fore.GREEN}Successfully fetched data for '{product_name}' on attempt {attempt}{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}Successfully fetched data for '{product_name}' on attempt {attempt}{Style.RESET_ALL}{chr(10)}")
                 success_counter.append(1)
-                # Extract the first item's details and mark risky if attempt > 1
+                # Extract the first item's details and mark risky if attempt >
                 first_item = data['items'][0]
                 return {
                     "upc": first_item.get("upc"),
@@ -132,7 +132,7 @@ def fetch_weight_from_upcitemdb_search(product_name, api_key, throttle_time, suc
 
             print(f"{Fore.RED}No results for product name '{product_name}'{Style.RESET_ALL}")
         except requests.exceptions.RequestException as e:
-            print(f"{Fore.RED}Error fetching data from UPCItemDB API for product '{product_name}': {e}{Style.RESET_ALL}")
+            print(f"{Fore.RED}Error fetching data from UPCItemDB API for product '{product_name}': {e}{Style.RESET_ALL}\n")
         finally:
             time.sleep(throttle_time)  # Wait for the specified throttle time
 
