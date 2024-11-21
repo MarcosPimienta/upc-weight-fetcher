@@ -31,7 +31,7 @@ def main():
         inquirer.Text(
             "throttle_time",
             message="Enter the throttle time (in seconds) between requests (e.g., 1 for 1 second)",
-            validate=lambda _, x: x.isdigit() and int(x) > 0,
+            validate=lambda _, x: x.isdigit() and int(x) >= 0,
         ),
     ]
     api_answers = inquirer.prompt(api_question)
@@ -175,15 +175,33 @@ def main():
 
         processed_data.append(processed_row)
 
-    # Step 9: Save to new files
-    output_df = pd.DataFrame(processed_data)
-    save_to_csv(output_df, "updated_products.csv")
-    save_to_excel(output_df, "updated_products.xlsx")
+    # Step 9: Categorize the processed data
+    general_report = processed_data
+    positive_products = [row for row in processed_data if row.get("risky") == "No"]
+    risky_products = [row for row in processed_data if row.get("risky") == "Yes"]
+    failed_products = [row for row in processed_data if row.get("upc") == "N/A"]
 
-    # Step 10: Display summary
+    # Step 10: Save to Excel with multiple sheets
+    with pd.ExcelWriter("updated_products.xlsx") as writer:
+        # General report
+        pd.DataFrame(general_report).to_excel(writer, sheet_name="general_report", index=False)
+        # Positive products
+        pd.DataFrame(positive_products).to_excel(writer, sheet_name="positive_products", index=False)
+        # Risky products
+        pd.DataFrame(risky_products).to_excel(writer, sheet_name="risky_products", index=False)
+        # Failed products
+        pd.DataFrame(failed_products).to_excel(writer, sheet_name="failed_products", index=False)
+
+    # Step 11: Save to CSV (general report only)
+    save_to_csv(pd.DataFrame(general_report), "updated_products.csv")
+
+    # Step 12: Display summary
     print(f"\nFiles 'updated_products.csv' and 'updated_products.xlsx' generated successfully.")
     print(f"\n{len(success_counter)} products successfully processed.")
     print(f"{len(failure_counter)} products failed to process.")
+    print(f"{len(positive_products)} products fetched on the first attempt.")
+    print(f"{len(risky_products)} products fetched after retries.")
+    print(f"{len(failed_products)} products failed to fetch.")
 
 if __name__ == "__main__":
     main()
