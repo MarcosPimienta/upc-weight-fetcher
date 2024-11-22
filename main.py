@@ -83,16 +83,17 @@ def main():
         sys.exit(1)
 
     # Step 6: Prompt user to select columns for output
-    column_choices = inquirer.Checkbox(
+    column_choices = ["None"] + df.columns.tolist()  # Add "None" as the first option
+    column_question = inquirer.Checkbox(
         "columns",
-        message="Select the columns you want to include in the output",
-        choices=df.columns.tolist(),
+        message="Select the columns you want to include in the output:",
+        choices=column_choices,
     )
-    selected_columns = inquirer.prompt([column_choices])["columns"]
+    selected_columns = inquirer.prompt([column_question])["columns"]
 
-    if not selected_columns:
-        print("No columns selected. Exiting.")
-        sys.exit(1)
+    # If "None" is selected, clear the selected columns
+    if "None" in selected_columns:
+        selected_columns = []
 
     # Step 7: Ensure 'Title' column is included in the selected columns
     if "Title" not in df.columns:
