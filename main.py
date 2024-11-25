@@ -1,11 +1,9 @@
 import sys
 import pandas as pd
 import inquirer
-from modules.data_fetcher import (
-    fetch_weight_from_upcitemdb_search,
-    fetch_weights_from_red_circle,
-    fetch_weights_from_go_upc,
-)
+from modules.red_circle_fetcher import fetch_weights_from_red_circle
+from modules.upcitem_fetcher import fetch_weight_from_upcitemdb_search
+from modules.go_upc_fetcher import fetch_weights_from_go_upc
 from utils.data_converter import convert_to_grams
 from modules.file_handler import save_to_excel, save_to_csv
 from colorama import Fore, Style
@@ -40,16 +38,14 @@ def main():
 
     # Step 3: Test API Connection
     print(f"\nTesting connection for {api_choice} API...")
-    test_query = "Test Query Product"  # Placeholder for testing
-    success_counter, failure_counter = [], []  # Initialize counters for testing
+    test_query = "Test Query Product"
+    success_counter, failure_counter = [], []
 
     if api_choice == "UPCItemDB":
-        # Pass empty lists for counters during the test
         test_response = fetch_weight_from_upcitemdb_search(
             test_query, api_key, throttle_time, success_counter, failure_counter
         )
     elif api_choice == "RedCircle":
-        # Use the updated function for RedCircle
         test_response = fetch_weights_from_red_circle(
             test_query, api_key, throttle_time, success_counter, failure_counter
         )
@@ -89,34 +85,6 @@ def main():
         print(f"Error loading sheet '{sheet_name}': {e}")
         sys.exit(1)
 
-    # Test API Connection
-    if "Title" not in df.columns:
-        print("Error: 'Title' column is required but not found in the file.")
-        sys.exit(1)
-
-    test_query = df["Title"].iloc[0]  # Use the first product title for testing
-    print(f"\nTesting connection for {api_choice} API with query: '{test_query}'")
-
-    if api_choice == "UPCItemDB":
-        test_response = fetch_weight_from_upcitemdb_search(
-            test_query, api_key, throttle_time, [], []
-        )
-    elif api_choice == "RedCircle":
-        test_response = fetch_weights_from_red_circle(
-            test_query, api_key, throttle_time, [], []
-        )
-    elif api_choice == "Go-UPC":
-        test_response = fetch_weights_from_go_upc("123456789012", api_key, throttle_time)
-    else:
-        print("Invalid API selection.")
-        sys.exit(1)
-
-    if not test_response:
-        print(f"{api_choice} API Connection Failed. Please check your API key or query.")
-        sys.exit(1)
-
-    print(f"{api_choice} API Connection Successful!\n")
-
     # Step 6: Prompt user to select columns for output
     column_choices = ["None"] + df.columns.tolist()
     column_question = inquirer.Checkbox(
@@ -126,16 +94,14 @@ def main():
     )
     selected_columns = inquirer.prompt([column_question])["columns"]
 
-    # If "None" is selected, clear the selected columns
     if "None" in selected_columns:
         selected_columns = []
 
-    # Step 7: Ensure 'Title' column is included in the selected columns
     if "Title" not in df.columns:
         print("Error: Required column 'Title' not found in the data.")
         sys.exit(1)
 
-    # Step 8: Process the data
+    # Step 7: Process the data
     processed_data = []
     success_counter = []
     failure_counter = []
@@ -147,7 +113,6 @@ def main():
         # Display query progress
         print(f"{Fore.CYAN}Processing query {index}/{total_queries}: {title}{Style.RESET_ALL}")
 
-        # Fetch product details based on the selected API
         product_details = None
         if api_choice == "UPCItemDB":
             product_details = fetch_weight_from_upcitemdb_search(
@@ -155,22 +120,12 @@ def main():
             )
         elif api_choice == "RedCircle":
             product_details = fetch_weights_from_red_circle(
-                title, api_key, throttle_time
+                title, api_key, throttle_time, success_counter, failure_counter
             )
-            if product_details:
-                product_details["risky"] = "No"  # RedCircle doesn't have retry logic
-                success_counter.append(1)
-            else:
-                failure_counter.append(1)
         elif api_choice == "Go-UPC":
             product_details = fetch_weights_from_go_upc(
                 title, api_key, throttle_time
             )
-            if product_details:
-                product_details["risky"] = "No"  # Go-UPC doesn't have retry logic
-                success_counter.append(1)
-            else:
-                failure_counter.append(1)
 
         if product_details:
             weight_in_grams = None
@@ -204,40 +159,33 @@ def main():
                 "risky": "N/A",
             }
 
-        # Include additional selected columns
         for col in selected_columns:
             if col not in processed_row:
                 processed_row[col] = row[1].get(col, "N/A")
 
         processed_data.append(processed_row)
 
-    # Step 9: Categorize the processed data
+    # Categorize and save the data
     general_report = processed_data
     positive_products = [row for row in processed_data if row.get("risky") == "No"]
     risky_products = [row for row in processed_data if row.get("risky") == "Yes"]
     failed_products = [row for row in processed_data if row.get("upc") == "N/A"]
 
-    # Step 10: Save to Excel with multiple sheets
     with pd.ExcelWriter("updated_products.xlsx") as writer:
-        # General report
         pd.DataFrame(general_report).to_excel(writer, sheet_name="general_report", index=False)
-        # Positive products
         pd.DataFrame(positive_products).to_excel(writer, sheet_name="positive_products", index=False)
-        # Risky products
         pd.DataFrame(risky_products).to_excel(writer, sheet_name="risky_products", index=False)
-        # Failed products
         pd.DataFrame(failed_products).to_excel(writer, sheet_name="failed_products", index=False)
 
-    # Step 11: Save to CSV (general report only)
     save_to_csv(pd.DataFrame(general_report), "updated_products.csv")
 
-    # Step 12: Display summary
-    print(f"\nFiles 'updated_products.csv' and 'updated_products.xlsx' generated successfully.")
     print(f"\n{len(success_counter)} products successfully processed.")
     print(f"{len(failure_counter)} products failed to process.")
     print(f"{len(positive_products)} products fetched on the first attempt.")
     print(f"{len(risky_products)} products fetched after retries.")
     print(f"{len(failed_products)} products failed to fetch.")
+    print("Files 'updated_products.csv' and 'updated_products.xlsx' generated successfully.")
+
 
 if __name__ == "__main__":
     main()
