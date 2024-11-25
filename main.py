@@ -40,12 +40,19 @@ def main():
 
     # Step 3: Test API Connection
     print(f"\nTesting connection for {api_choice} API...")
-    test_query = "Test Query Product"
+    test_query = "Test Query Product"  # Placeholder for testing
+    success_counter, failure_counter = [], []  # Initialize counters for testing
+
     if api_choice == "UPCItemDB":
         # Pass empty lists for counters during the test
-        test_response = fetch_weight_from_upcitemdb_search(test_query, api_key, throttle_time, [], [])
+        test_response = fetch_weight_from_upcitemdb_search(
+            test_query, api_key, throttle_time, success_counter, failure_counter
+        )
     elif api_choice == "RedCircle":
-        test_response = fetch_weights_from_red_circle(test_query, api_key, throttle_time)
+        # Use the updated function for RedCircle
+        test_response = fetch_weights_from_red_circle(
+            test_query, api_key, throttle_time, success_counter, failure_counter
+        )
     elif api_choice == "Go-UPC":
         test_response = fetch_weights_from_go_upc("123456789012", api_key, throttle_time)
     else:
@@ -82,8 +89,36 @@ def main():
         print(f"Error loading sheet '{sheet_name}': {e}")
         sys.exit(1)
 
+    # Test API Connection
+    if "Title" not in df.columns:
+        print("Error: 'Title' column is required but not found in the file.")
+        sys.exit(1)
+
+    test_query = df["Title"].iloc[0]  # Use the first product title for testing
+    print(f"\nTesting connection for {api_choice} API with query: '{test_query}'")
+
+    if api_choice == "UPCItemDB":
+        test_response = fetch_weight_from_upcitemdb_search(
+            test_query, api_key, throttle_time, [], []
+        )
+    elif api_choice == "RedCircle":
+        test_response = fetch_weights_from_red_circle(
+            test_query, api_key, throttle_time, [], []
+        )
+    elif api_choice == "Go-UPC":
+        test_response = fetch_weights_from_go_upc("123456789012", api_key, throttle_time)
+    else:
+        print("Invalid API selection.")
+        sys.exit(1)
+
+    if not test_response:
+        print(f"{api_choice} API Connection Failed. Please check your API key or query.")
+        sys.exit(1)
+
+    print(f"{api_choice} API Connection Successful!\n")
+
     # Step 6: Prompt user to select columns for output
-    column_choices = ["None"] + df.columns.tolist()  # Add "None" as the first option
+    column_choices = ["None"] + df.columns.tolist()
     column_question = inquirer.Checkbox(
         "columns",
         message="Select the columns you want to include in the output:",

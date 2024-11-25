@@ -176,50 +176,79 @@ def fetch_weight_from_upcitemdb(upc, api_key):
         print(f"Error fetching data from UPCItemDB API for UPC {upc}: {e}")
         return None, None
 
-
-def fetch_weights_from_red_circle(query, api_key, throttle_time):
+def fetch_weights_from_red_circle(query, api_key, throttle_time, success_counter, failure_counter, max_retries=3):
     """
-    Searches for a product using RedCircle API based on a query.
+    Searches for a product using RedCircle API with retry attempts and progressive truncation.
 
     Parameters:
     - query: The product query as a string.
     - api_key: The API key for authentication.
     - throttle_time: Time in seconds to wait between API requests.
+    - success_counter: A list to track successful responses.
+    - failure_counter: A list to track failed responses.
+    - max_retries: The maximum number of retry attempts for a failed query.
 
     Returns:
     - A dictionary with extracted data (e.g., weight, unit) if successful, otherwise None.
     """
-    url = "https://api.redcircleapi.com/request"
-    params = {
-        'api_key': api_key,
-        'search_term': query,
-        'type': 'search',
-    }
+    original_query = query
+    truncated_titles = truncate_title(query)  # Generate a list of truncated titles
+    attempt = 0
 
-    try:
-        response = requests.get(url, params=params)
-        print(f"Request URL: {response.url}")  # Debug URL
-        response.raise_for_status()  # Raise an error for HTTP status codes >= 400
+    while attempt < max_retries and attempt < len(truncated_titles):
+        # Use the next truncated title for each attempt
+        query = truncated_titles[attempt]
+        attempt += 1
 
-        # Parse the response JSON
-        data = response.json()
-        if not data.get("items"):
-            print(f"No results for query '{query}'")
-            return None
-
-        # Extract the first item's details
-        first_item = data['items'][0]
-        return {
-            "weight": first_item.get("weight"),
-            "unit": first_item.get("unit"),
+        # Manually construct the request URL
+        url = "https://api.redcircleapi.com/request"
+        params = {
+            'api_key': api_key,
+            'search_term': query,
+            'type': 'search',
         }
 
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching data from RedCircle API for query '{query}': {e}")
-        return None
-    finally:
-        time.sleep(throttle_time)  # Wait for the specified throttle time
+        print(f"{Fore.YELLOW}Attempt {attempt}/{max_retries}: Querying '{query}'{Style.RESET_ALL}")
+        try:
+            response = requests.get(url, params=params)
+            print(f"{Fore.BLUE}Request URL:{Style.RESET_ALL} {response.url}")  # Debug URL
 
+            if response.status_code == 429:  # Rate limit exceeded
+                print(f"{Fore.YELLOW}Rate limit exceeded. Waiting for reset...{Style.RESET_ALL}")
+                reset_time = int(response.headers.get("x-ratelimit-reset", time.time() + 60))
+                wait_time = max(0, reset_time - int(time.time()))
+                time.sleep(wait_time + 1)  # Wait until rate limit resets
+                continue
+
+            response.raise_for_status()  # Raise an error for HTTP status codes >= 400
+
+            # Parse the response JSON
+            data = response.json()
+            if data.get("items"):
+                print(f"{Fore.GREEN}Successfully fetched data for '{query}' on attempt {attempt}{Style.RESET_ALL}{chr(10)}")
+                success_counter.append(1)
+                # Extract the first item's details
+                first_item = data['items'][0]
+                return {
+                    "upc": first_item.get("upc"),
+                    "weight": first_item.get("weight"),
+                    "brand": first_item.get("brand"),
+                    "title": first_item.get("title"),
+                    "description": first_item.get("description"),
+                    "category": first_item.get("category"),
+                    "images": first_item.get("images"),
+                    "risky": "Yes" if attempt > 1 else "No",  # Mark as risky if not the first attempt
+                }
+
+            print(f"{Fore.RED}No results for query '{query}'{Style.RESET_ALL}")
+        except requests.exceptions.RequestException as e:
+            print(f"{Fore.RED}Error fetching data from RedCircle API for query '{query}': {e}{Style.RESET_ALL}\n")
+        finally:
+            time.sleep(throttle_time)  # Wait for the specified throttle time
+
+    print(f"{Fore.RED}Failed to fetch data for query '{original_query}' after {attempt} attempts.{Style.RESET_ALL}")
+    failure_counter.append(1)
+    return None
 
 def fetch_weights_from_go_upc(upc, api_key, throttle_time):
     """
