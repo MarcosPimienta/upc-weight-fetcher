@@ -6,7 +6,7 @@ from modules.data_fetcher import (
     fetch_weights_from_red_circle,
     fetch_weights_from_go_upc,
 )
-from modules.data_converter import convert_to_grams
+from utils.data_converter import convert_to_grams
 from modules.file_handler import save_to_excel, save_to_csv
 from colorama import Fore, Style
 
