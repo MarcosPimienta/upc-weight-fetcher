@@ -1,28 +1,27 @@
+import re
+
+
 def convert_to_grams(weight, unit):
-    """
-    Converts weight to grams based on the unit.
-
-    Parameters:
-    - weight: The weight value as a float.
-    - unit: The unit of weight as a string.
-
-    Returns:
-    - Weight in grams as a float.
-    """
-    conversion_factors = {
-        'kg': 1000,
-        'g': 1,
-        'lb': 453.592,
-        'pound': 453.592,
-        'pounds': 453.592,
-        'oz': 28.3495,
-        'ounce': 28.3495,
-        'ounces': 28.3495
-    }
     unit = unit.lower()
-    factor = conversion_factors.get(unit)
-    if factor:
-        return weight * factor
+    if unit in ["kg", "kilograms"]:
+        return weight * 1000
+    elif unit in ["g", "grams"]:
+        return weight
+    elif unit in ["lb", "lbs", "pounds"]:
+        return weight * 453.592
+    elif unit in ["oz", "ounces"]:
+        return weight * 28.3495
     else:
-        print(f"Unknown weight unit '{unit}'. Cannot convert to grams.")
         return None
+
+
+def truncate_title(title):
+    clean_title = re.sub(r"^\d+\s*[a-zA-Z]*\s*", "", title).strip()
+    delimiters = [":", "-"]
+    truncated_titles = [clean_title]
+    for delimiter in delimiters:
+        if delimiter in clean_title:
+            parts = clean_title.split(delimiter)
+            for i in range(1, len(parts)):
+                truncated_titles.append(delimiter.join(parts[:i]).strip())
+    return truncated_titles

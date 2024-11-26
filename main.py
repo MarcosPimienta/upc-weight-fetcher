@@ -4,8 +4,9 @@ import inquirer
 from modules.red_circle_fetcher import fetch_weights_from_red_circle
 from modules.upcitem_fetcher import fetch_weight_from_upcitemdb_search
 from modules.go_upc_fetcher import fetch_weights_from_go_upc
+from utils.api_tester import test_api_connection
 from utils.data_converter import convert_to_grams
-from modules.file_handler import save_to_excel, save_to_csv
+from modules.file_handler import save_to_excel_with_highlighting, save_to_csv
 from colorama import Fore, Style
 
 
@@ -38,27 +39,9 @@ def main():
 
     # Step 3: Test API Connection
     print(f"\nTesting connection for {api_choice} API...")
-    test_query = "Test Query Product"
-    success_counter, failure_counter = [], []
-
-    if api_choice == "UPCItemDB":
-        test_response = fetch_weight_from_upcitemdb_search(
-            test_query, api_key, throttle_time, success_counter, failure_counter
-        )
-    elif api_choice == "RedCircle":
-        test_response = fetch_weights_from_red_circle(
-            test_query, api_key, throttle_time, success_counter, failure_counter
-        )
-    elif api_choice == "Go-UPC":
-        test_response = fetch_weights_from_go_upc("123456789012", api_key, throttle_time)
-    else:
-        print("Invalid API selection.")
-        sys.exit(1)
-
-    if not test_response:
+    if not test_api_connection(api_choice, api_key):
         print(f"{api_choice} API Connection Failed. Please check your API key or query.")
         sys.exit(1)
-
     print(f"{api_choice} API Connection Successful!\n")
 
     # Step 4: Load Excel file and list available sheets
@@ -86,106 +69,91 @@ def main():
         sys.exit(1)
 
     # Step 6: Prompt user to select columns for output
-    column_choices = ["None"] + df.columns.tolist()
+    field_choices = [
+        "Product Title",
+        "Description",
+        "Price",
+        "SKU",
+        "Brand",
+        "Category",
+        "Main Image URL",
+    ]
     column_question = inquirer.Checkbox(
-        "columns",
-        message="Select the columns you want to include in the output:",
-        choices=column_choices,
+        "fields",
+        message="Select the fields you want to query:",
+        choices=field_choices,
     )
-    selected_columns = inquirer.prompt([column_question])["columns"]
+    selected_fields = inquirer.prompt([column_question])["fields"]
 
-    if "None" in selected_columns:
-        selected_columns = []
-
-    if "Title" not in df.columns:
-        print("Error: Required column 'Title' not found in the data.")
+    # Ensure at least one field is selected
+    if not selected_fields:
+        print("No fields selected. Exiting.")
         sys.exit(1)
 
     # Step 7: Process the data
     processed_data = []
-    success_counter = []
-    failure_counter = []
-
-    total_queries = len(df)  # Total number of queries
+    total_queries = len(df)
     for index, row in enumerate(df.iterrows(), start=1):
         title = row[1].get("Title", "").strip()
 
         # Display query progress
         print(f"{Fore.CYAN}Processing query {index}/{total_queries}: {title}{Style.RESET_ALL}")
 
+        # Fetch product details based on the selected API
         product_details = None
         if api_choice == "UPCItemDB":
             product_details = fetch_weight_from_upcitemdb_search(
-                title, api_key, throttle_time, success_counter, failure_counter
+                title, api_key, throttle_time, [], []
             )
         elif api_choice == "RedCircle":
             product_details = fetch_weights_from_red_circle(
-                title, api_key, throttle_time, success_counter, failure_counter
+                title, api_key, throttle_time, [], []
             )
         elif api_choice == "Go-UPC":
             product_details = fetch_weights_from_go_upc(
                 title, api_key, throttle_time
             )
 
+        # Initialize row data with "N/A" for all selected fields
+        row_data = {field: "N/A" for field in selected_fields}
+
+        # Update row data with fetched product details
         if product_details:
-            weight_in_grams = None
-            if product_details.get("weight"):
-                weight_parts = product_details["weight"].split()
-                if len(weight_parts) >= 2:
-                    weight_value, weight_unit = weight_parts[:2]
-                    weight_in_grams = convert_to_grams(float(weight_value), weight_unit)
-                else:
-                    print(f"{Fore.YELLOW}Warning: Unable to process weight for product '{title}': {product_details['weight']}{Style.RESET_ALL}")
+            for field in selected_fields:
+                # Map fields to product details keys
+                field_map = {
+                    "Product Title": "title",
+                    "Description": "description",
+                    "Price": "price",
+                    "SKU": "sku",
+                    "Brand": "brand",
+                    "Category": "category",
+                    "Main Image URL": "images",
+                }
+                mapped_key = field_map.get(field)
+                if mapped_key:
+                    value = product_details.get(mapped_key, "N/A")
+                    if field == "Main Image URL" and isinstance(value, list):
+                        value = ", ".join(value)  # Join image URLs into a string
+                    row_data[field] = value
 
-            processed_row = {
-                "title": product_details.get("title", "N/A"),
-                "upc": product_details.get("upc", "N/A"),
-                "brand": product_details.get("brand", "N/A"),
-                "weight (grams)": weight_in_grams if weight_in_grams else "N/A",
-                "category": product_details.get("category", "N/A"),
-                "description": product_details.get("description", "N/A"),
-                "images": ", ".join(product_details.get("images", [])),
-                "risky": product_details.get("risky", "N/A"),
-            }
-        else:
-            processed_row = {
-                "title": title,
-                "upc": "N/A",
-                "brand": "N/A",
-                "weight (grams)": "N/A",
-                "category": "N/A",
-                "description": "N/A",
-                "images": "N/A",
-                "risky": "N/A",
-            }
+        row_data["Title"] = title
+        processed_data.append(row_data)
 
-        for col in selected_columns:
-            if col not in processed_row:
-                processed_row[col] = row[1].get(col, "N/A")
+    # Step 8: Highlight rows with all "N/A" fields
+    df_processed = pd.DataFrame(processed_data)
+    all_na_mask = df_processed[selected_fields].eq("N/A").all(axis=1)
+    for i in df_processed[all_na_mask].index:
+        df_processed.loc[i, :] = df_processed.loc[i, :].apply(
+            lambda x: f"{Fore.RED}{x}{Style.RESET_ALL}"
+        )
 
-        processed_data.append(processed_row)
+    # Step 9: Save to Excel with red highlighting for rows with all 'N/A' fields
+    na_fields = selected_fields  # Fields selected for output
+    save_to_excel_with_highlighting(df_processed, "updated_products.xlsx", na_fields)
 
-    # Categorize and save the data
-    general_report = processed_data
-    positive_products = [row for row in processed_data if row.get("risky") == "No"]
-    risky_products = [row for row in processed_data if row.get("risky") == "Yes"]
-    failed_products = [row for row in processed_data if row.get("upc") == "N/A"]
-
-    with pd.ExcelWriter("updated_products.xlsx") as writer:
-        pd.DataFrame(general_report).to_excel(writer, sheet_name="general_report", index=False)
-        pd.DataFrame(positive_products).to_excel(writer, sheet_name="positive_products", index=False)
-        pd.DataFrame(risky_products).to_excel(writer, sheet_name="risky_products", index=False)
-        pd.DataFrame(failed_products).to_excel(writer, sheet_name="failed_products", index=False)
-
-    save_to_csv(pd.DataFrame(general_report), "updated_products.csv")
-
-    print(f"\n{len(success_counter)} products successfully processed.")
-    print(f"{len(failure_counter)} products failed to process.")
-    print(f"{len(positive_products)} products fetched on the first attempt.")
-    print(f"{len(risky_products)} products fetched after retries.")
-    print(f"{len(failed_products)} products failed to fetch.")
-    print("Files 'updated_products.csv' and 'updated_products.xlsx' generated successfully.")
-
+    # Display completion message
+    print(f"\nFile 'updated_products.xlsx' generated successfully.")
 
 if __name__ == "__main__":
     main()
