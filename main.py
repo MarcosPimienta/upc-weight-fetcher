@@ -1,12 +1,10 @@
 import sys
 import pandas as pd
 import inquirer
-from modules.red_circle_fetcher import fetch_weights_from_red_circle
 from modules.upcitem_fetcher import fetch_weight_from_upcitemdb_search
+from modules.red_circle_fetcher import fetch_weights_from_red_circle
 from modules.go_upc_fetcher import fetch_weights_from_go_upc
-from utils.api_tester import test_api_connection
-from utils.data_converter import convert_to_grams
-from modules.file_handler import save_to_excel_with_highlighting, save_to_csv
+from modules.file_handler import save_to_excel_with_highlighting, sanitize_dataframe
 from colorama import Fore, Style
 
 
@@ -37,14 +35,7 @@ def main():
     api_choice = api_answers["api_choice"]
     throttle_time = int(api_answers["throttle_time"])  # Convert input to integer
 
-    # Step 3: Test API Connection
-    print(f"\nTesting connection for {api_choice} API...")
-    if not test_api_connection(api_choice, api_key):
-        print(f"{api_choice} API Connection Failed. Please check your API key or query.")
-        sys.exit(1)
-    print(f"{api_choice} API Connection Successful!\n")
-
-    # Step 4: Load Excel file and list available sheets
+    # Step 3: Load Excel file and list available sheets
     try:
         sheets = pd.ExcelFile(file_path).sheet_names
         sheet_question = [
@@ -59,42 +50,55 @@ def main():
         print(f"Error loading Excel file: {e}")
         sys.exit(1)
 
-    # Step 5: Load the selected sheet
+    # Step 4: Inquire the user about the row where column names are located
+    column_row_question = [
+        inquirer.Text(
+            "header_row",
+            message="Enter the row number where column names are located (e.g., 1 for first row)",
+            validate=lambda _, x: x.isdigit() and int(x) > 0,
+        )
+    ]
+    header_row = int(inquirer.prompt(column_row_question)["header_row"]) - 1  # Adjust for zero-based index
+
+    # Step 5: Load the selected sheet with specified header row
     try:
-        df = pd.read_excel(file_path, sheet_name=sheet_name, header=0)
-        df.dropna(how="all", inplace=True)  # Drop empty rows
-        df.columns = df.columns.str.strip()  # Strip whitespace from column names
+        df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row)
+        df = sanitize_dataframe(df)  # Use sanitize_dataframe for preprocessing
     except Exception as e:
         print(f"Error loading sheet '{sheet_name}': {e}")
         sys.exit(1)
 
-    # Step 6: Prompt user to select columns for output
-    field_choices = [
-        "Product Title",
-        "Description",
-        "Price",
-        "SKU",
-        "Brand",
-        "Category",
-        "Main Image URL",
+    # Step 6: Ask user to map the column holding the 'title' parameter
+    title_column_question = [
+        inquirer.List(
+            "title_column",
+            message="Select the column that holds the 'title' parameter for API queries:",
+            choices=df.columns.tolist(),
+        )
     ]
+    title_column = inquirer.prompt(title_column_question)["title_column"]
+
+    # Step 7: Inquire about columns to migrate
+    column_choices = ["None"] + df.columns.tolist()
     column_question = inquirer.Checkbox(
-        "fields",
-        message="Select the fields you want to query:",
-        choices=field_choices,
+        "columns",
+        message="Select the columns you want to include in the output:",
+        choices=column_choices,
     )
-    selected_fields = inquirer.prompt([column_question])["fields"]
+    selected_columns = inquirer.prompt([column_question])["columns"]
 
-    # Ensure at least one field is selected
-    if not selected_fields:
-        print("No fields selected. Exiting.")
-        sys.exit(1)
+    # If "None" is selected, clear the selected columns
+    if "None" in selected_columns:
+        selected_columns = []
 
-    # Step 7: Process the data
+    # Step 8: Process the data
     processed_data = []
-    total_queries = len(df)
-    for index, row in enumerate(df.iterrows(), start=1):
-        title = row[1].get("Title", "").strip()
+    success_counter = []
+    failure_counter = []
+
+    total_queries = len(df)  # Total number of queries
+    for index, row in enumerate(df.itertuples(index=False), start=1):
+        title = getattr(row, title_column, "").strip()
 
         # Display query progress
         print(f"{Fore.CYAN}Processing query {index}/{total_queries}: {title}{Style.RESET_ALL}")
@@ -103,57 +107,52 @@ def main():
         product_details = None
         if api_choice == "UPCItemDB":
             product_details = fetch_weight_from_upcitemdb_search(
-                title, api_key, throttle_time, [], []
+                title, api_key, throttle_time, success_counter, failure_counter
             )
         elif api_choice == "RedCircle":
             product_details = fetch_weights_from_red_circle(
-                title, api_key, throttle_time, [], []
+                title, api_key, throttle_time, success_counter, failure_counter
             )
         elif api_choice == "Go-UPC":
             product_details = fetch_weights_from_go_upc(
-                title, api_key, throttle_time
+                title, api_key, throttle_time, success_counter, failure_counter
             )
 
-        # Initialize row data with "N/A" for all selected fields
-        row_data = {field: "N/A" for field in selected_fields}
-
-        # Update row data with fetched product details
+        # Prepare the row data
+        processed_row = {col: getattr(row, col, "") for col in selected_columns}
         if product_details:
-            for field in selected_fields:
-                # Map fields to product details keys
-                field_map = {
-                    "Product Title": "title",
-                    "Description": "description",
-                    "Price": "price",
-                    "SKU": "sku",
-                    "Brand": "brand",
-                    "Category": "category",
-                    "Main Image URL": "images",
-                }
-                mapped_key = field_map.get(field)
-                if mapped_key:
-                    value = product_details.get(mapped_key, "N/A")
-                    if field == "Main Image URL" and isinstance(value, list):
-                        value = ", ".join(value)  # Join image URLs into a string
-                    row_data[field] = value
+            processed_row.update({
+                "title": product_details.get("title", ""),
+                "upc": product_details.get("upc", ""),
+                "brand": product_details.get("brand", ""),
+                "weight (grams)": product_details.get("weight", ""),
+                "category": product_details.get("category", ""),
+                "description": product_details.get("description", ""),
+                "images": ", ".join(product_details.get("images", [])),
+            })
+        else:
+            processed_row.update({
+                "title": title,
+                "upc": "",
+                "brand": "",
+                "weight (grams)": "",
+                "category": "",
+                "description": "",
+                "images": "",
+            })
 
-        row_data["Title"] = title
-        processed_data.append(row_data)
+        processed_data.append(processed_row)
 
-    # Step 8: Highlight rows with all "N/A" fields
+    # Step 9: Highlight empty rows and save results
     df_processed = pd.DataFrame(processed_data)
-    all_na_mask = df_processed[selected_fields].eq("N/A").all(axis=1)
-    for i in df_processed[all_na_mask].index:
-        df_processed.loc[i, :] = df_processed.loc[i, :].apply(
-            lambda x: f"{Fore.RED}{x}{Style.RESET_ALL}"
-        )
+    na_fields = ["title", "description", "price", "sku", "brand", "category", "images"]
+    save_to_excel_with_highlighting(df_processed, api_choice.lower(), na_fields)
 
-    # Step 9: Save to Excel with red highlighting for rows with all 'N/A' fields
-    na_fields = selected_fields  # Fields selected for output
-    save_to_excel_with_highlighting(df_processed, "updated_products.xlsx", na_fields)
+    # Display summary
+    print(f"\nFiles '{api_choice.lower()}.xlsx' generated successfully.")
+    print(f"\n{len(success_counter)} products successfully processed.")
+    print(f"{len(failure_counter)} products failed to process.")
 
-    # Display completion message
-    print(f"\nFile 'updated_products.xlsx' generated successfully.")
 
 if __name__ == "__main__":
     main()

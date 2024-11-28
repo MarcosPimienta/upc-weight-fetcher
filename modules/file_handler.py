@@ -1,6 +1,7 @@
+import os
 import pandas as pd
-from openpyxl.styles import PatternFill
 from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
 
 def load_excel(file_path, sheet_name=0, header_row=None):
     """
@@ -36,30 +37,37 @@ def sanitize_dataframe(df):
     """
     return df.applymap(lambda x: "" if pd.isnull(x) or x == "N/A" else x)
 
-def save_to_excel_with_highlighting(df, file_path, na_fields):
+def save_to_excel_with_highlighting(df, api_name, na_fields):
     """
-    Saves a DataFrame to an Excel file and highlights rows with all selected fields empty in red.
+    Save the dataframe to an Excel file with highlighting for rows missing all fields.
+    Files are saved to API-specific folders.
 
     Parameters:
     - df: The DataFrame to save.
-    - file_path: The path for the output Excel file.
-    - na_fields: The list of fields to check for empty values.
+    - api_name: The name of the API used (e.g., "upcitemdb", "redcircle").
+    - na_fields: List of columns to check for missing values.
     """
-    # Sanitize DataFrame
-    df = sanitize_dataframe(df)
+    # Define the folder based on API name
+    folder = f"results/{api_name}"
+    os.makedirs(folder, exist_ok=True)  # Create the folder if it doesn't exist
 
-    # Save the DataFrame to an Excel file
+    # Define the file name dynamically based on API
+    file_name = f"{api_name}_products.xlsx"
+    file_path = os.path.join(folder, file_name)
+
+    # Save DataFrame to Excel
     df.to_excel(file_path, index=False, engine="openpyxl")
 
-    # Apply red fill for rows with all selected fields empty
-    red_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
+    # Apply highlighting for rows with all N/A fields
     wb = load_workbook(file_path)
     ws = wb.active
+    highlight = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
-    # Iterate over rows and apply highlighting
-    for row_idx, row in enumerate(df.itertuples(index=False), start=2):  # Start at 2 (row 1 is header)
-        if all(getattr(row, field, "").strip() == "" for field in na_fields):
-            for col_idx in range(1, len(df.columns) + 1):  # Apply fill to all columns
-                ws.cell(row=row_idx, column=col_idx).fill = red_fill
+    for row_idx, row in enumerate(df.itertuples(index=False), start=2):
+        # Check if all specified fields are missing
+        if all(pd.isna(getattr(row, field, None)) for field in na_fields):
+            for col_idx in range(1, len(df.columns) + 1):
+                ws.cell(row=row_idx, column=col_idx).fill = highlight
 
     wb.save(file_path)
+    print(f"File saved to: {file_path}")
