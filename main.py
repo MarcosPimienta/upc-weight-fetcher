@@ -6,6 +6,7 @@ from modules.red_circle_fetcher import fetch_weights_from_red_circle
 from modules.go_upc_fetcher import fetch_weights_from_go_upc
 from modules.file_handler import save_to_excel_with_highlighting, sanitize_dataframe
 from colorama import Fore, Style
+import os
 
 
 def main():
@@ -68,15 +69,15 @@ def main():
         print(f"Error loading sheet '{sheet_name}': {e}")
         sys.exit(1)
 
-    # Step 6: Ask user to map the column holding the 'title' parameter
-    title_column_question = [
+    # Step 6: Ask user to map the column holding the parameter for the query
+    parameter_column_question = [
         inquirer.List(
-            "title_column",
-            message="Select the column that holds the 'title' parameter for API queries:",
+            "parameter_column",
+            message="Select the column that holds the parameter for API queries:",
             choices=df.columns.tolist(),
         )
     ]
-    title_column = inquirer.prompt(title_column_question)["title_column"]
+    parameter_column = inquirer.prompt(parameter_column_question)["parameter_column"]
 
     # Step 7: Inquire about columns to migrate
     column_choices = ["None"] + df.columns.tolist()
@@ -96,32 +97,49 @@ def main():
     success_counter = []
     failure_counter = []
 
+    # If RedCircle, inquire about the query type
+    query_type = None
+    if api_choice == "RedCircle":
+        query_type_question = inquirer.List(
+            "query_type",
+            message="Select the query type for RedCircle API",
+            choices=["search", "category", "product"],
+        )
+        query_type = inquirer.prompt([query_type_question])["query_type"]
+        if query_type == "product":
+            print(f"{Fore.YELLOW}Note: For 'product', the GTIN will be formatted from the UPC by prefixing '00'.{Style.RESET_ALL}")
+
     total_queries = len(df)  # Total number of queries
     for index, row in enumerate(df.itertuples(index=False), start=1):
-        title = getattr(row, title_column, "").strip()
+        parameter_value = getattr(row, parameter_column, "").strip()
+
+        # Format GTIN if RedCircle and product query
+        if api_choice == "RedCircle" and query_type == "product":
+            parameter_value = f"00{parameter_value}"
 
         # Display query progress
-        print(f"{Fore.CYAN}Processing query {index}/{total_queries}: {title}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Processing query {index}/{total_queries}: {parameter_value}{Style.RESET_ALL}")
 
         # Fetch product details based on the selected API
         product_details = None
         if api_choice == "UPCItemDB":
             product_details = fetch_weight_from_upcitemdb_search(
-                title, api_key, throttle_time, success_counter, failure_counter
+                parameter_value, api_key, throttle_time, success_counter, failure_counter
             )
         elif api_choice == "RedCircle":
             product_details = fetch_weights_from_red_circle(
-                title, api_key, throttle_time, success_counter, failure_counter
+                parameter_value, api_key, throttle_time, success_counter, failure_counter, query_type
             )
         elif api_choice == "Go-UPC":
             product_details = fetch_weights_from_go_upc(
-                title, api_key, throttle_time, success_counter, failure_counter
+                parameter_value, api_key, throttle_time, success_counter, failure_counter
             )
 
         # Prepare the row data
         processed_row = {col: getattr(row, col, "") for col in selected_columns}
         if product_details:
             processed_row.update({
+                "parameter_value": parameter_value,
                 "title": product_details.get("title", ""),
                 "upc": product_details.get("upc", ""),
                 "brand": product_details.get("brand", ""),
@@ -132,7 +150,8 @@ def main():
             })
         else:
             processed_row.update({
-                "title": title,
+                "parameter_value": parameter_value,
+                "title": "",
                 "upc": "",
                 "brand": "",
                 "weight (grams)": "",
@@ -146,10 +165,14 @@ def main():
     # Step 9: Highlight empty rows and save results
     df_processed = pd.DataFrame(processed_data)
     na_fields = ["title", "description", "price", "sku", "brand", "category", "images"]
-    save_to_excel_with_highlighting(df_processed, api_choice.lower(), na_fields)
+    output_dir = f"results/{api_choice.lower()}"
+    os.makedirs(output_dir, exist_ok=True)
+    save_to_excel_with_highlighting(
+        df_processed, f"{output_dir}/{api_choice.lower()}_products.xlsx", na_fields
+    )
 
     # Display summary
-    print(f"\nFiles '{api_choice.lower()}.xlsx' generated successfully.")
+    print(f"\nFiles '{api_choice.lower()}_products.xlsx' generated successfully.")
     print(f"\n{len(success_counter)} products successfully processed.")
     print(f"{len(failure_counter)} products failed to process.")
 
